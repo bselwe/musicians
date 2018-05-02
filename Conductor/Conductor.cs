@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Common;
 using Common.Messages;
@@ -8,10 +9,10 @@ namespace Conductor
 {
     public class Conductor
     {
-        private readonly object lockObject = new object();
+        private readonly SemaphoreSlim conductorSem = new SemaphoreSlim(1, 1);
         private readonly IHubContext<ConductorHub> hub;
 
-        public int Musicians { get; private set; } = 6;
+        public int Musicians { get; private set; }
         public int Connected { get; private set; } = 0;
 
         public bool AllConnected => Connected == Musicians;
@@ -22,20 +23,36 @@ namespace Conductor
             Musicians = MusiciansLoader.GetNumberOfMusicians();
         }
 
-        public Task JoinMusician(ConnectMessage message)
+        public Task ConnectMusician(JoinMessage message, string connectionId)
         {
-            lock (lockObject)
+            return LockAsync(async () => 
             {
                 if (AllConnected)
-                    return Task.CompletedTask;
+                    return;
 
                 Connected++;
-                Console.WriteLine($"Connected: {message.ConnectedId}, status: {Connected}/{Musicians}");
+                await hub.Groups.AddAsync(connectionId, message.SenderId.ToString());
+                Console.WriteLine($"Connected: {message.SenderId} ({connectionId}), status: {Connected}/{Musicians}");
 
                 if (AllConnected)
-                    return hub.Clients.All.SendAsync("start");
-                
-                return Task.CompletedTask;
+                {
+                    Console.WriteLine("All connected. Starting...");
+                    await hub.Clients.All.SendAsync("start");
+                }
+            });
+        }
+
+        private async Task LockAsync(Func<Task> action)
+        {
+            await conductorSem.WaitAsync();
+
+            try
+            {
+                await action();
+            }
+            finally
+            {
+                conductorSem.Release();
             }
         }
     }

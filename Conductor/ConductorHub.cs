@@ -15,9 +15,9 @@ namespace Conductor
             this.conductor = conductor;
         }
 
-        public Task Join(ConnectMessage message)
+        public Task Join(JoinMessage message)
         {
-            return conductor.JoinMusician(message);
+            return conductor.ConnectMusician(message, Context.ConnectionId);
         }
     }
 }

@@ -45,7 +45,7 @@ namespace Musicians
 
             connection.On("start", OnStartMessage);
 
-            await connection.InvokeAsync<ConnectMessage>("join", new ConnectMessage() { ConnectedId = Id });
+            await connection.InvokeAsync("join", new JoinMessage() { SenderId = Id });
         }
 
         private void OnStartMessage()
