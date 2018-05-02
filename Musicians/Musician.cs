@@ -1,41 +1,25 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using Common;
 using Common.Messages;
-using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 
 namespace Musicians
 {
-    public class Musician
+    using BaseMusician = Common.Musician;
+
+    public class Musician : BaseMusician
     {
         private readonly HubConnection connection;
 
-        public int Id { get; private set; }
-        public Position Position { get; private set; }
-        public MusicianStatus Status { get; private set; }
-
-        private List<int> neighbors;
-        public IReadOnlyList<int> Neighbors => neighbors;
-
-        public Musician(int id, Position position)
+        public Musician(int id, Position position) : base(id, position)
         {
-            Id = id;
-            Position = position;
-            Status = MusicianStatus.Waiting;
-
             connection = new HubConnectionBuilder()
                 .WithUrl(Configuration.ConductorHubUrl)
                 .WithConsoleLogger()
                 .Build();
-        }
-
-        public void SetNeighbors(IEnumerable<int> neighbors)
-        {
-            this.neighbors = new List<int>(neighbors);
         }
 
         public async Task Run()
@@ -43,39 +27,26 @@ namespace Musicians
             connection.Closed += HandleConnectionError;
             await connection.StartAsync();
 
-            connection.On("start", OnStartMessage);
+            connection.On("start", async () => await OnStartMessage());
+            connection.On("neighbors", (int neighbor) => OnNeighborsMessage(neighbor));
 
             await connection.InvokeAsync("join", new JoinMessage() { SenderId = Id });
         }
 
-        private void OnStartMessage()
+        private async Task OnStartMessage()
         {
             Console.WriteLine($"[{Id}] Starting");
+            await connection.InvokeAsync("neighbors", new NeighborsMessage() { SenderId = Id });
+        }
+
+        private void OnNeighborsMessage(int neighbor)
+        {
+            Console.WriteLine($"[{Id}] Received neighbor message from {neighbor}");
         }
 
         private void HandleConnectionError(Exception ex)
         {
-            Console.WriteLine($"Connection closed with error: {ex.Message}");
-        }
-
-        public enum MusicianStatus
-        {
-            Waiting,
-            Performing,
-            Inactive
-        }
-    }
-
-    public static class MusiciansExtensions
-    {
-        public static void SetNeighbors(this IEnumerable<Musician> musicians)
-        {
-            foreach (var musician in musicians)
-            {
-                var neighbors = musicians.Where(m => m != musician && m.Position.DistanceTo(musician.Position) <= Configuration.NeighborMaximumDistance);
-                var neighborsIds = neighbors.Select(n => n.Id);
-                musician.SetNeighbors(neighborsIds);
-            }
+            Console.WriteLine($"Connection closed with error: {ex}");
         }
     }
 }

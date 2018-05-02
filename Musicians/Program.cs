@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 
 namespace Musicians
 {
-    class Musicians
+    class Program
     {
         static void Main(string[] args)
         {
@@ -19,13 +19,7 @@ namespace Musicians
 
         static void InitializeMusicians()
         {
-            var musicians = new List<Musician>();
-            var musicianIndex = 0;
-
-            foreach (var position in MusiciansLoader.GetMusiciansPositions())
-                musicians.Add(new Musician(musicianIndex++, position));
-
-            musicians.SetNeighbors();
+            var musicians = MusiciansLoader.GetMusicians((id, pos) => new Musician(id, pos));
 
             foreach (var musician in musicians)
                 new Thread(async () => await musician.Run()).Start();

@@ -8,22 +8,16 @@ namespace Common
 {
     public static class MusiciansLoader
     {
-        public static int GetNumberOfMusicians()
+        public static IEnumerable<T> GetMusicians<T>(Func<int, Position, T> createMusician) where T : Musician
         {
-            var data = File.ReadLines(Configuration.PositionsFile).First();
-            TryParseInt(data, out int musicians);
-            return musicians;
-        }
-
-        public static IEnumerable<Position> GetMusiciansPositions()
-        {
+            var musicians = new List<T>();
             var data = File.ReadAllLines(Configuration.PositionsFile);
-            TryParseInt(data[0], out int musicians);
+            TryParseInt(data[0], out int numberOfMusicians);
 
-            if (musicians != data.Length - 1)
+            if (numberOfMusicians != data.Length - 1)
                 throw new ArgumentException("Invalid number of arguments");
 
-            for (int i = 0; i < musicians; i++)
+            for (int i = 0; i < numberOfMusicians; i++)
             {
                 var position = data[i + 1].Split();
                 if (position.Length != 2)
@@ -32,8 +26,18 @@ namespace Common
                 TryParseInt(position[0], out int x);
                 TryParseInt(position[1], out int y);
 
-                yield return new Position(x, y);
+                var musician = createMusician(i, new Position(x, y));
+                musicians.Add(musician);
             }
+
+            foreach (var musician in musicians)
+            {
+                var neighbors = musicians.Where(m => m != musician && m.Position.DistanceTo(musician.Position) <= Configuration.NeighborMaximumDistance);
+                var neighborsIds = neighbors.Select(n => new Neighbor(n.Id));
+                musician.SetNeighbors(neighborsIds);
+            }
+
+            return musicians;
         }
 
         static void TryParseInt(string s, out int val)

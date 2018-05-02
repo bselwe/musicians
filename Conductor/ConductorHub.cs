@@ -19,5 +19,10 @@ namespace Conductor
         {
             return conductor.ConnectMusician(message, Context.ConnectionId);
         }
+
+        public Task Neighbors(NeighborsMessage message)
+        {
+            return conductor.SendNeighborsMessage(message);
+        }
     }
 }
