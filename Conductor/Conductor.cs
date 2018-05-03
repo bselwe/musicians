@@ -14,20 +14,17 @@ namespace Conductor
         private readonly SemaphoreSlim conductorSem = new SemaphoreSlim(1, 1);
         private readonly IHubContext<ConductorHub> hub;
 
-        public Dictionary<int, Musician> Musicians { get; private set; }
+        public int Musicians { get; private set; }
         public int Connected { get; private set; } = 0;
-
-        public bool AllConnected => Connected == Musicians.Count;
+        public bool AllConnected => Connected == Musicians;
 
         public Conductor(IHubContext<ConductorHub> hubContext)
         {
             hub = hubContext;
-            Musicians = MusiciansLoader
-                .GetMusicians((id, pos) => new Musician(id, pos))
-                .ToDictionary(m => m.Id);
+            Musicians = MusiciansLoader.GetNumberOfMusicians();
         }
 
-        public Task ConnectMusician(JoinMessage message, string connectionId)
+        public Task ConnectMusician(ConnectMessage message, string connectionId)
         {
             return LockAsync(async () => 
             {
@@ -35,8 +32,8 @@ namespace Conductor
                     return;
 
                 Connected++;
-                await hub.Groups.AddAsync(connectionId, message.SenderId.ToString());
-                Console.WriteLine($"Connected: {message.SenderId} ({connectionId}), status: {Connected}/{Musicians.Count}");
+                await hub.Groups.AddAsync(connectionId, message.Sender.ToString());
+                Console.WriteLine($"Musician: {message.Sender} ({connectionId}), connected: {Connected}/{Musicians}");
 
                 if (AllConnected)
                 {
@@ -46,13 +43,13 @@ namespace Conductor
             });
         }
 
-        public Task SendNeighborsMessage(NeighborsMessage message)
+        public Task SendMessage(string name, Message message)
         {
             return LockAsync(async () =>
             {
-                foreach (var neighbor in Musicians[message.SenderId].Neighbors)
+                foreach (var receiver in message.Receivers)
                 {
-                    await hub.Clients.Group(neighbor.Id.ToString()).SendAsync("neighbors", message.SenderId);
+                    await hub.Clients.Group(receiver.ToString()).SendAsync(name, message);
                 }
             });
         }

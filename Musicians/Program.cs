@@ -19,9 +19,7 @@ namespace Musicians
 
         static void InitializeMusicians()
         {
-            var musicians = MusiciansLoader.GetMusicians((id, pos) => new Musician(id, pos));
-
-            foreach (var musician in musicians)
+            foreach (var musician in MusiciansLoader.GetMusicians())
                 new Thread(async () => await musician.Run()).Start();
         }
 

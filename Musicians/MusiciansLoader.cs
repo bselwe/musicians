@@ -2,31 +2,37 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
+using Common;
 
-namespace Common
+namespace Musicians
 {
     public static class MusiciansLoader
     {
-        public static IEnumerable<T> GetMusicians<T>(Func<int, Position, T> createMusician) where T : Musician
+        public static IEnumerable<Musician> GetMusicians()
         {
-            var musicians = new List<T>();
-            var data = File.ReadAllLines(Configuration.PositionsFile);
-            TryParseInt(data[0], out int numberOfMusicians);
+            var random = new Random(Guid.NewGuid().GetHashCode());
+            var musicians = new List<Musician>();
 
+            var data = File.ReadAllLines(Configuration.MusiciansFile);
+            TryParseInt(data[0], out int numberOfMusicians);
+            
             if (numberOfMusicians != data.Length - 1)
                 throw new ArgumentException("Invalid number of arguments");
 
+            var maxPriorityValue = (int) Math.Pow(numberOfMusicians, 4);
+
             for (int i = 0; i < numberOfMusicians; i++)
             {
-                var position = data[i + 1].Split();
-                if (position.Length != 2)
+                var positions = data[i + 1].Split();
+                if (positions.Length != 2)
                     throw new ArgumentException("Invalid number of arguments");
 
-                TryParseInt(position[0], out int x);
-                TryParseInt(position[1], out int y);
+                TryParseInt(positions[0], out int x);
+                TryParseInt(positions[1], out int y);
 
-                var musician = createMusician(i, new Position(x, y));
+                var position = new Position(x, y);
+                var priorityValue = random.Next(maxPriorityValue);
+                var musician = new Musician(i, position, priorityValue);
                 musicians.Add(musician);
             }
 

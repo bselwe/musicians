@@ -1,6 +1,4 @@
-using System;
 using System.Threading.Tasks;
-using Common;
 using Common.Messages;
 using Microsoft.AspNetCore.SignalR;
 
@@ -15,14 +13,19 @@ namespace Conductor
             this.conductor = conductor;
         }
 
-        public Task Join(JoinMessage message)
+        public Task Connect(ConnectMessage message)
         {
             return conductor.ConnectMusician(message, Context.ConnectionId);
         }
 
-        public Task Neighbors(NeighborsMessage message)
+        public Task Exchange(ExchangeMessage message)
         {
-            return conductor.SendNeighborsMessage(message);
+            return conductor.SendMessage("exchange", message);
+        }
+
+        public Task Reject(ExchangeMessage message)
+        {
+            return conductor.SendMessage("reject", message);
         }
     }
 }
