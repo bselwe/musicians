@@ -4,7 +4,6 @@ namespace Musicians
     {
         Unknown,
         Winner,
-        Loser,
-        NotLoser
+        Loser
     }
 }

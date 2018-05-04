@@ -13,20 +13,25 @@ namespace Musicians
     public class Musician
     {
         private readonly HubConnection connection;
-        private List<Neighbor> neighbors = new List<Neighbor>();
+        private Dictionary<int, Neighbor> neighbors = new Dictionary<int, Neighbor>();
 
         public int Id { get; private set; }
         public Position Position { get; private set; }
         public MusicianPriority Priority { get; private set; }
+        public bool PrioritySet => Priority != MusicianPriority.Unknown;
         public int PriorityValue { get; private set; }
         public MusicianStatus Status { get; private set; }
-        public IReadOnlyList<Neighbor> Neighbors => neighbors;
-        public IEnumerable<int> NeighborsIds => Neighbors.Select(n => n.Id);
+        public IReadOnlyDictionary<int, Neighbor> Neighbors => neighbors;
+        public IEnumerable<int> NeighborsIds => Neighbors.Keys;
 
         public int AcceptedExchange { get; private set; }
         public int RejectedExchange { get; private set; }
         public bool ExchangeCompleted => AcceptedExchange + RejectedExchange == Neighbors.Count;
         public bool ExchangeAccepted => AcceptedExchange == Neighbors.Count && RejectedExchange == 0;
+
+        public int NotWinnerMessages { get; private set; }
+        public bool NotWinner => NotWinnerMessages == Neighbors.Count;
+        public bool NotWinnerSent { get; private set; }
 
         public Musician(int id, Position position, int priorityValue)
         {
@@ -43,9 +48,9 @@ namespace Musicians
                 .Build();
         }
 
-        public void SetNeighbors(IEnumerable<Neighbor> neighbors)
+        public void SetNeighbors(Dictionary<int, Neighbor> neighbors)
         {
-            this.neighbors = new List<Neighbor>(neighbors);
+            this.neighbors = new Dictionary<int, Neighbor>(neighbors);
         }
 
         public async Task Run()
@@ -75,10 +80,10 @@ namespace Musicians
 
         private Task OnExchangeMessage(ExchangeMessage message)
         {
-            if (Status == MusicianStatus.WaitingForExchange)
+            if (Status == MusicianStatus.WaitingForExchange || PrioritySet)
             {
                 Console.WriteLine($"[{Id}] Received exchange message from {message.Sender} with status {message.Status}");
-                
+
                 switch (message.Status)
                 {
                     case ExchangeStatus.Requested:
@@ -95,16 +100,30 @@ namespace Musicians
 
         private Task HandleRequestedExchangeMessage(ExchangeMessage message)
         {
+            if (Priority == MusicianPriority.Loser)
+                return Exchange(message.Value, ExchangeStatus.Accepted, new[] { message.Sender });
+            else if (Priority == MusicianPriority.Winner)
+                return Exchange(Id, ExchangeStatus.Rejected, new[] { message.Sender });
+
             if (message.Value > PriorityValue)
                 return Exchange(message.Value, ExchangeStatus.Accepted, new[] { message.Sender });
-
             return Exchange(Id, ExchangeStatus.Rejected, new[] { message.Sender });
         }
 
         private Task HandleAcceptedExchangeMessage(ExchangeMessage message)
         {
             AcceptedExchange++;
+            return HandleVerifiedExchangeMessage(message);
+        }
 
+        private Task HandleRejectedExchangeMessage(ExchangeMessage message)
+        {
+            RejectedExchange++;
+            return HandleVerifiedExchangeMessage(message);
+        }
+
+        private Task HandleVerifiedExchangeMessage(ExchangeMessage message)
+        {
             if (ExchangeAccepted)
             {
                 Console.WriteLine($"[{Id}] Winner");
@@ -114,17 +133,7 @@ namespace Musicians
 
             if (ExchangeCompleted)
                 Status = MusicianStatus.WaitingForPriority;
-        
-            return Task.CompletedTask;
-        }
-
-        private Task HandleRejectedExchangeMessage(ExchangeMessage message)
-        {
-            RejectedExchange++;
-
-            if (ExchangeCompleted)
-                Status = MusicianStatus.WaitingForPriority;
-
+            
             return Task.CompletedTask;
         }
 
@@ -138,34 +147,60 @@ namespace Musicians
                 {
                     case PriorityStatus.Winner:
                         return HandleWinnerPriorityMessage(message);
-                    case PriorityStatus.Loser:
-                        return HandleLoserPriorityMessage(message);
-                    case PriorityStatus.NotLoser:
-                        return HandleNotLoserPriorityMessage(message);
+                    case PriorityStatus.NotWinner:
+                        return HandleNotWinnerPriorityMessage(message);
                 }
             }
 
             return Reject(message, $"Current status: {Status}, expected: {MusicianStatus.WaitingForPriority}");
         }
 
-        private Task HandleWinnerPriorityMessage(PriorityMessage message)
+        private async Task HandleWinnerPriorityMessage(PriorityMessage message)
         {
-            return Task.CompletedTask;
-        }
-        
-        private Task HandleLoserPriorityMessage(PriorityMessage message)
-        {
-            return Task.CompletedTask;
+            Neighbors[message.Sender].Priority = MusicianPriority.Winner;
+            Priority = MusicianPriority.Loser;
+
+            if (!NotWinnerSent)
+            {
+                NotWinnerSent = true;
+                var neighbors = NeighborsIds.Where(id => Neighbors[id].Priority != MusicianPriority.Winner);
+                await Prioritize(PriorityStatus.NotWinner, neighbors);
+            }
+
+            // TODO: Implement
+            // That means, I'm a loser... So I have to wait for the winner
+            // WAIT FOR THE WINNER TO START THE NEXT ROUND HERE
+            // + Change status not to receive more priority messages
         }
 
-        private Task HandleNotLoserPriorityMessage(PriorityMessage message)
+        private async Task HandleNotWinnerPriorityMessage(PriorityMessage message)
         {
-            return Task.CompletedTask;
+            if (!NotWinnerSent)
+            {
+                NotWinnerSent = true;
+                var neighbors = NeighborsIds.Where(id => id != message.Sender && Neighbors[id].Priority != MusicianPriority.Winner);
+                await Prioritize(PriorityStatus.NotWinner, neighbors);
+            }
+
+            NotWinnerMessages++;    
+            if (NotWinner)
+            {
+                Console.WriteLine($"[{Id}] Not winner, trying to exchange again...");
+                ResetForExchange();
+                await Exchange(PriorityValue, ExchangeStatus.Requested, NeighborsIds);
+            }
         }
 
         private void OnRejectMessage(RejectMessage message)
         {
             Console.WriteLine($"[{Id}] Rejected by {message.Sender} with reason: \"{message.Reason}\"");
+        }
+
+        private void ResetForExchange()
+        {
+            AcceptedExchange = RejectedExchange = NotWinnerMessages = 0;
+            NotWinnerSent = false;
+            Status = MusicianStatus.WaitingForExchange;
         }
 
         private Task Connect()

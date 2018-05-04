@@ -7,8 +7,7 @@ namespace Common.Messages
         public enum PriorityStatus
         {
             Winner,
-            Loser,
-            NotLoser
+            NotWinner
         }
     }
 }

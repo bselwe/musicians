@@ -38,9 +38,11 @@ namespace Musicians
 
             foreach (var musician in musicians)
             {
-                var neighbors = musicians.Where(m => m != musician && m.Position.DistanceTo(musician.Position) <= Configuration.NeighborMaximumDistance);
-                var neighborsIds = neighbors.Select(n => new Neighbor(n.Id));
-                musician.SetNeighbors(neighborsIds);
+                var neighbors = musicians
+                    .Where(m => m != musician && m.Position.DistanceTo(musician.Position) <= Configuration.NeighborMaximumDistance)
+                    .Select(n => new Neighbor(n.Id))
+                    .ToDictionary(n => n.Id);
+                musician.SetNeighbors(neighbors);
             }
 
             return musicians;
