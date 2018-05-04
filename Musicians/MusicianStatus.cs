@@ -5,5 +5,7 @@ namespace Musicians
         WaitingForStart,
         WaitingForExchange,
         WaitingForPriority,
+        Performing,
+        Inactive
     }
 }
