@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ContentWithTargetPath Include="../Common/positions">
+    <ContentWithTargetPath Include="../Common/Positions/positions-*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>%(Filename)%(Extension)</TargetPath>
     </ContentWithTargetPath>
