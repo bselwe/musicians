@@ -10,7 +10,7 @@ namespace Common
         public static string ConductorHub = "/conductor";
         public static string ConductorHubUrl = $"{ConductorBaseUrl}{ConductorHub}";
 
-        public static string MusiciansFile = $"{AppDomain.CurrentDomain.BaseDirectory}/positions-3";
+        public static string MusiciansFile = $"{AppDomain.CurrentDomain.BaseDirectory}/positions-2";
         public static int NeighborMaximumDistance = 3;
     }
 }
