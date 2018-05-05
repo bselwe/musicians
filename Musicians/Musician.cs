@@ -20,9 +20,10 @@ namespace Musicians
 
         public int Id { get; private set; }
         public Position Position { get; private set; }
-        public MusicianPriority Priority { get; private set; }
+        public MusicianStatus Status { get; private set; }
         public int PriorityValue { get; private set; }
         public bool Started { get; private set; }
+        public int Round { get; private set; }
 
         public IReadOnlyDictionary<int, Neighbor> Neighbors => neighbors;
         public IEnumerable<int> NeighborsIds => Neighbors.Keys;
@@ -34,7 +35,7 @@ namespace Musicians
         {
             Id = id;
             Position = position;
-            Priority = MusicianPriority.Unknown;
+            Status = MusicianStatus.Unknown;
             PriorityValue = priorityValue;
 
             // Configure connection with the conductor
@@ -79,6 +80,12 @@ namespace Musicians
         {
             Console.WriteLine($"[{Id}] Received exchange message from {message.Sender} with status {message.Status}");
 
+            if (Round != message.Round)
+            {
+                Round = message.Round;
+                ResetForExchange();
+            }
+
             switch (message.Status)
             {
                 case ExchangeStatus.Requested:
@@ -94,9 +101,9 @@ namespace Musicians
 
         private Task HandleRequestedExchangeMessage(ExchangeMessage message)
         {
-            if (Priority == MusicianPriority.Loser)
+            if (Status == MusicianStatus.Loser || Status == MusicianStatus.Inactive)
                 return Exchange(message.Value, ExchangeStatus.Accepted, new[] { message.Sender });
-            else if (Priority == MusicianPriority.Winner)
+            else if (Status == MusicianStatus.Winner)
                 return Exchange(Id, ExchangeStatus.Rejected, new[] { message.Sender });
 
             if (message.Value > PriorityValue)
@@ -127,7 +134,7 @@ namespace Musicians
 
         private Task OnPriorityMessage(PriorityMessage message)
         {
-            if (Priority == MusicianPriority.Winner)
+            if (Status == MusicianStatus.Winner || Status == MusicianStatus.Inactive)
                 return Task.CompletedTask;
 
             Console.WriteLine($"[{Id}] Received priority message from {message.Sender} with status {message.Status}");
@@ -146,7 +153,7 @@ namespace Musicians
         private async Task HandleWinnerPriorityMessage(PriorityMessage message)
         {
             Neighbors[message.Sender].Priority = PriorityResult.Winner;
-            Priority = MusicianPriority.Loser;
+            Status = MusicianStatus.Loser;
 
             if (!NotWinnerSent)
             {
@@ -175,7 +182,9 @@ namespace Musicians
         private Task StartNewRound()
         {
             Console.WriteLine($"[{Id}] Starting new round...");
-            return Task.CompletedTask;
+            Round++;
+            ResetForExchange();
+            return Exchange(PriorityValue, ExchangeStatus.Requested, NeighborsIds);
         }
 
         private async Task HandleNotWinnerPriorityMessage(PriorityMessage message)
@@ -198,7 +207,7 @@ namespace Musicians
 
         private Task OnPerformanceMessage(PerformanceMessage message)
         {
-            if (Priority == MusicianPriority.Loser)
+            if (Status == MusicianStatus.Loser)
                 PerformanceTimestamp = DateTime.Now;
             return Task.CompletedTask;
         }
@@ -219,6 +228,7 @@ namespace Musicians
             { 
                 Sender = Id, 
                 Receivers = receivers,
+                Round = Round,
                 Value = value,
                 Status = status
             };
@@ -240,7 +250,7 @@ namespace Musicians
 
         private async Task Perform()
         {
-            Priority = MusicianPriority.Winner;
+            Status = MusicianStatus.Winner;
             Console.WriteLine($"[{Id}] PERFORMING");
 
             var messagesLeft = Configuration.MusicianPerformanceTimeMs / Configuration.TimeBetweenPerformanceMessagesMs;
@@ -250,6 +260,7 @@ namespace Musicians
                 if (messagesLeft-- > 0) await Task.Delay(Configuration.TimeBetweenPerformanceMessagesMs);
             }
 
+            Status = MusicianStatus.Inactive;
             Console.WriteLine($"[{Id}] FINISHED PERFORMING");
         }
 
@@ -267,8 +278,10 @@ namespace Musicians
 
         private void ResetForExchange()
         {
-            // Priority = MusicianPriority.Unknown;
             NotWinnerSent = false;
+
+            if (Status == MusicianStatus.Loser)
+                Status = MusicianStatus.Unknown;
 
             foreach (var neighbor in Neighbors.Keys)
             {
@@ -282,11 +295,12 @@ namespace Musicians
             Console.WriteLine($"Connection closed with error: {ex?.Message}");
         }
 
-        public enum MusicianPriority
+        public enum MusicianStatus
         {
             Unknown,
             Winner,
-            Loser
+            Loser,
+            Inactive
         }
     }
 }
