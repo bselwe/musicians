@@ -28,6 +28,11 @@ namespace Conductor
             return conductor.SendMessage("prioritize", message);
         }
 
+        public Task Perform(PriorityMessage message)
+        {
+            return conductor.SendMessage("perform", message);
+        }
+
         public Task Reject(RejectMessage message)
         {
             return conductor.SendMessage("reject", message);

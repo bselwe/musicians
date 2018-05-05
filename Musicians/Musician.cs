@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Common;
 using Common.Messages;
@@ -15,6 +16,7 @@ namespace Musicians
     {
         private readonly HubConnection connection;
         private Dictionary<int, Neighbor> neighbors = new Dictionary<int, Neighbor>();
+        private Timer timer;
 
         public int Id { get; private set; }
         public Position Position { get; private set; }
@@ -26,6 +28,7 @@ namespace Musicians
         public IEnumerable<int> NeighborsIds => Neighbors.Keys;
 
         public bool NotWinnerSent { get; private set; }
+        public DateTime PerformanceTimestamp { get; private set; }
 
         public Musician(int id, Position position, int priorityValue)
         {
@@ -33,7 +36,7 @@ namespace Musicians
             Position = position;
             Priority = MusicianPriority.Unknown;
             PriorityValue = priorityValue;
-            
+
             // Configure connection with the conductor
             connection = new HubConnectionBuilder()
                 .WithUrl(Configuration.ConductorHubUrl)
@@ -54,6 +57,7 @@ namespace Musicians
             connection.On("start", () => OnStartMessage());
             connection.On("exchange", (ExchangeMessage message) => OnExchangeMessage(message));
             connection.On("prioritize", (PriorityMessage message) => OnPriorityMessage(message));
+            connection.On("perform", (PerformanceMessage message) => OnPerformanceMessage(message));
             connection.On("reject", (RejectMessage message) => OnRejectMessage(message));
 
             await Connect();
@@ -112,15 +116,13 @@ namespace Musicians
             return HandleVerifiedExchangeMessage(message);
         }
 
-        private Task HandleVerifiedExchangeMessage(ExchangeMessage message)
+        private async Task HandleVerifiedExchangeMessage(ExchangeMessage message)
         {
             if (Neighbors.Values.All(n => n.Exchange == ExchangeResult.Accepted))
             {
-                Perform();
-                return Prioritize(PriorityStatus.Winner, NeighborsIds);
+                await Prioritize(PriorityStatus.Winner, NeighborsIds);
+                await Perform();
             }
-
-            return Task.CompletedTask;
         }
 
         private Task OnPriorityMessage(PriorityMessage message)
@@ -152,9 +154,28 @@ namespace Musicians
                 await Prioritize(PriorityStatus.NotWinner, NeighborsIds);
             }
 
-            // TODO: Implement
-            // That means, I'm a loser... So I have to wait for the winner
-            // WAIT FOR THE WINNER TO START THE NEXT ROUND HERE
+            WaitForPerformance();
+        }
+
+        private void WaitForPerformance()
+        {
+            PerformanceTimestamp = DateTime.Now;
+            timer = new Timer((s) => CheckForPerformanceEnd(), null, Configuration.MusicianPerformanceEndTimeMs, Timeout.Infinite);
+        }
+
+        private Task CheckForPerformanceEnd()
+        {
+            if ((DateTime.Now - PerformanceTimestamp).TotalMilliseconds > Configuration.MusicianPerformanceEndTimeMs)
+                return StartNewRound();
+
+            timer.Change(Configuration.MusicianPerformanceEndTimeMs, Timeout.Infinite);
+            return Task.CompletedTask;
+        }
+
+        private Task StartNewRound()
+        {
+            Console.WriteLine($"[{Id}] Starting new round...");
+            return Task.CompletedTask;
         }
 
         private async Task HandleNotWinnerPriorityMessage(PriorityMessage message)
@@ -169,32 +190,22 @@ namespace Musicians
 
             if (Neighbors.Values.All(n => n.Priority == PriorityResult.NotWinner))
             {
-                Console.WriteLine($"[{Id}] Not winner, trying to exchange again...");
                 ResetForExchange();
+                Console.WriteLine($"[{Id}] Not winner, trying to exchange again...");
                 await Exchange(PriorityValue, ExchangeStatus.Requested, NeighborsIds);
             }
+        }
+
+        private Task OnPerformanceMessage(PerformanceMessage message)
+        {
+            if (Priority == MusicianPriority.Loser)
+                PerformanceTimestamp = DateTime.Now;
+            return Task.CompletedTask;
         }
 
         private void OnRejectMessage(RejectMessage message)
         {
             Console.WriteLine($"[{Id}] Rejected by {message.Sender} with reason: \"{message.Reason}\"");
-        }
-
-        private void Perform()
-        {
-            Console.WriteLine($"[{Id}] PERFORMING");
-            Priority = MusicianPriority.Winner;
-        }
-
-        private void ResetForExchange()
-        {
-            NotWinnerSent = false;
-
-            foreach (var neighbor in Neighbors.Keys)
-            {
-                Neighbors[neighbor].Priority = PriorityResult.Unknown;
-                Neighbors[neighbor].Exchange = ExchangeResult.Unknown;
-            }
         }
 
         private Task Connect()
@@ -227,6 +238,21 @@ namespace Musicians
             return connection.InvokeAsync("prioritize", message);
         }
 
+        private async Task Perform()
+        {
+            Priority = MusicianPriority.Winner;
+            Console.WriteLine($"[{Id}] PERFORMING");
+
+            var messagesLeft = Configuration.MusicianPerformanceTimeMs / Configuration.TimeBetweenPerformanceMessagesMs;
+            while (messagesLeft > 0)
+            {
+                await connection.InvokeAsync("perform", new PerformanceMessage() { Sender = Id, Receivers = NeighborsIds });
+                if (messagesLeft-- > 0) await Task.Delay(Configuration.TimeBetweenPerformanceMessagesMs);
+            }
+
+            Console.WriteLine($"[{Id}] FINISHED PERFORMING");
+        }
+
         private Task Reject(Message msg, string reason)
         {
             var message = new RejectMessage() 
@@ -237,6 +263,18 @@ namespace Musicians
             };
 
             return connection.InvokeAsync("reject", message);
+        }
+
+        private void ResetForExchange()
+        {
+            // Priority = MusicianPriority.Unknown;
+            NotWinnerSent = false;
+
+            foreach (var neighbor in Neighbors.Keys)
+            {
+                Neighbors[neighbor].Priority = PriorityResult.Unknown;
+                Neighbors[neighbor].Exchange = ExchangeResult.Unknown;
+            }
         }
 
         private void HandleConnectionError(Exception ex)
